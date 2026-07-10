@@ -83,6 +83,8 @@ Captures each roll and its resulting dice state.
 | roll_number | integer | 1 to 3 |
 | dice_values_json | json | Dice values for that roll |
 | keepers_json | json | Kept dice values |
+| cup_state_json | json | Optional representation of the current cup state |
+| keep_state_json | json | Optional representation of which dice were held |
 
 ### leaderboard_snapshots
 Stores rankings for current, weekly, and all-time histories.

@@ -47,14 +47,17 @@ Objective: make the product reliable and useful beyond a single session.
 
 Deliverables:
 - Persistent storage for active games
+- Repository and ORM layer for game, player, scorecard, turn, and leaderboard data
 - Current game leaderboard
 - Weekly leaderboard
 - All-time leaderboard
 - Game state recovery and audit-safe updates
+- Snapshot generation for leaderboard history
 
 Success criteria:
 - Completed games are stored and reportable.
 - Rankings are available after game completion.
+- The gameplay state can be reloaded from persistence without loss.
 
 ## Phase 4 — Product quality
 Objective: improve reliability, usability, and maintainability.

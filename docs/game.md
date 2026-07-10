@@ -11,8 +11,8 @@ A new game can be initiated that
 - Aborts existing game
 - Request Player Registrations, followed by
     - Initialiation of each [players score card](player-score-card.md)
-    - Initialiation of first [round](rounds.md)
-    - Initialiation of first player's [turn](rounds.md)
+    - Initialiation of first [round](rounds.md#round)
+    - Initialiation of first player's [turn](rounds.md#turn)
 
 ## Players
 
@@ -33,7 +33,13 @@ Maximumnumber of [players](player.md) is 4
 
 ## Rounds
 
-Every round requires each registered player to have a turn.
+The [round](rounds.md#round) is concluded when each [player](player.md) has concluded their [turn](rounds.md#turn)
+
+### Rounds per game
+
+The number of rounds is equal to the sum of [upper scorecard categories](player-score-card.md#upper-section) plus [lower scorecard categories](player-score-card.md#lower-section)
+
+When the last round is concluded the game is over
 
 ## Turns
 
