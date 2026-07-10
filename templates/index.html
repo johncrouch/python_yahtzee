@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>python_yahtzee</title>
+    <style>
+      :root { color-scheme: light; }
+      body { font-family: "Segoe UI", Arial, sans-serif; margin: 0; background: linear-gradient(135deg, #f8fafc, #e2e8f0); color: #0f172a; }
+      .page { max-width: 1100px; margin: 0 auto; padding: 2rem 1rem 3rem; }
+      h1 { margin-bottom: 0.25rem; }
+      .subtitle { color: #475569; margin-bottom: 1.5rem; }
+      .grid { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 1rem; }
+      .card { background: white; padding: 1.25rem; border-radius: 16px; box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08); }
+      .toolbar { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 0.8rem; }
+      button, input, select { padding: 0.7rem 0.9rem; border-radius: 10px; border: 1px solid #cbd5e1; font-size: 0.95rem; }
+      button { background: #2563eb; color: white; cursor: pointer; border: none; }
+      button.secondary { background: #475569; }
+      .status { display: inline-block; padding: 0.4rem 0.7rem; border-radius: 999px; background: #dbeafe; color: #1d4ed8; font-weight: 600; margin-top: 0.7rem; }
+      .dice { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 0.8rem 0 1rem; }
+      .die { width: 48px; height: 48px; display: grid; place-items: center; font-weight: 700; font-size: 1.25rem; border-radius: 12px; background: #fef3c7; color: #92400e; box-shadow: inset 0 0 0 1px #fde68a; }
+      .players, .scorecard { display: grid; gap: 0.5rem; }
+      .player-row, .score-row { display: flex; justify-content: space-between; align-items: center; padding: 0.65rem 0.8rem; border-radius: 10px; background: #f8fafc; }
+      .score-row.active { outline: 2px solid #93c5fd; background: #eff6ff; }
+      .score-grid { display: grid; gap: 0.4rem; margin-top: 0.8rem; }
+      .score-card-panel { margin-top: 1rem; padding: 0.8rem; border-radius: 12px; background: #f8fafc; }
+      .score-card-panel h4 { margin: 0 0 0.5rem; }
+      .score-card-panel .section-title { font-weight: 700; margin-top: 0.6rem; color: #334155; }
+      .score-pill { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 999px; background: #dbeafe; color: #1d4ed8; font-size: 0.8rem; font-weight: 700; }
+      .muted { color: #64748b; font-size: 0.95rem; }
+      pre { background: #0f172a; color: #f8fafc; padding: 1rem; border-radius: 12px; overflow-x: auto; }
+      @media (max-width: 840px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1>python_yahtzee</h1>
+      <div class="subtitle">A polished, turn-based UI for the current game flow.</div>
+
+      <div class="grid">
+        <div class="card">
+          <h2>Game board</h2>
+          <div id="game-info" class="status">No game started yet.</div>
+          <div class="toolbar">
+            <button onclick="createGame()">Create Game</button>
+            <button class="secondary" onclick="startGame()">Start Game</button>
+            <button class="secondary" onclick="rollDice()">Roll Dice</button>
+            <button class="secondary" onclick="submitScore()">Submit Score</button>
+          </div>
+
+          <div class="muted" id="turn-info">Create or start a game to begin playing.</div>
+          <div class="dice" id="dice-view"></div>
+          <div class="score-grid" id="score-actions"></div>
+        </div>
+
+        <div class="card">
+          <h2>Players</h2>
+          <div class="players" id="players-view"></div>
+
+          <div class="score-card-panel" id="score-card-panel"></div>
+
+          <h3 style="margin-bottom: 0.3rem;">Add player</h3>
+          <div class="toolbar">
+            <input id="player-name" placeholder="Player name" />
+            <input id="seat-number" placeholder="Seat" type="number" min="1" max="4" />
+            <button onclick="addPlayer()">Add Player</button>
+          </div>
+
+          <h3 style="margin-bottom: 0.3rem; margin-top: 1rem;">Current state</h3>
+          <pre id="state-output">{}</pre>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let currentGameId = null;
+      const categories = ["ones", "twos", "threes", "fours", "fives", "sixes", "three_of_a_kind", "four_of_a_kind", "full_house", "small_straight", "large_straight", "yahtzee", "chance"];
+
+      async function api(path, options = {}) {
+        const response = await fetch(path, {
+          headers: { 'Content-Type': 'application/json' },
+          ...options,
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.detail || 'Request failed');
+        }
+        return data;
+      }
+
+      async function createGame() {
+        try {
+          const data = await api('/games', { method: 'POST' });
+          currentGameId = data.id;
+          document.getElementById('game-info').textContent = `Game ${data.id} created`;
+          await refreshState();
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function addPlayer() {
+        if (!currentGameId) {
+          alert('Create a game first.');
+          return;
+        }
+        const name = document.getElementById('player-name').value || 'Player';
+        const seat = Number(document.getElementById('seat-number').value || 1);
+        try {
+          await api(`/games/${currentGameId}/players`, {
+            method: 'POST',
+            body: JSON.stringify({ name, seat_number: seat }),
+          });
+          document.getElementById('player-name').value = '';
+          document.getElementById('seat-number').value = '';
+          await refreshState();
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function startGame() {
+        if (!currentGameId) {
+          alert('Create a game first.');
+          return;
+        }
+        try {
+          await api(`/games/${currentGameId}/start`, { method: 'POST' });
+          await refreshState();
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function rollDice() {
+        if (!currentGameId) {
+          alert('Create a game first.');
+          return;
+        }
+        try {
+          const data = await api(`/games/${currentGameId}/roll`, { method: 'POST' });
+          await refreshState();
+          const diceText = data.dice_values.join(' • ');
+          document.getElementById('turn-info').textContent = `Last roll: ${diceText}`;
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function submitScore() {
+        if (!currentGameId) {
+          alert('Create a game first.');
+          return;
+        }
+        const category = document.querySelector('input[name="category"]:checked')?.value || 'ones';
+        try {
+          const data = await api(`/games/${currentGameId}/score?category=${category}&dice_values=1&dice_values=1&dice_values=1&dice_values=2&dice_values=3`, { method: 'POST' });
+          await refreshState();
+          alert(`Score submitted: ${data.score}`);
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function refreshState() {
+        if (!currentGameId) return;
+        try {
+          const data = await api(`/games/${currentGameId}`);
+          document.getElementById('state-output').textContent = JSON.stringify(data, null, 2);
+          renderPlayers(data.players);
+          renderTurnInfo(data);
+          renderScoreActions(data);
+          renderScoreCards(data);
+        } catch (error) {
+          document.getElementById('state-output').textContent = error.message;
+        }
+      }
+
+      function renderPlayers(players) {
+        const container = document.getElementById('players-view');
+        if (!players || !players.length) {
+          container.innerHTML = '<div class="muted">No players yet.</div>';
+          return;
+        }
+        container.innerHTML = players.map((player) => `
+          <div class="player-row">
+            <span>${player.name}</span>
+            <span class="muted">Seat ${player.seat_number}</span>
+          </div>
+        `).join('');
+      }
+
+      function renderTurnInfo(data) {
+        const turnInfo = document.getElementById('turn-info');
+        const gameInfo = document.getElementById('game-info');
+        const diceView = document.getElementById('dice-view');
+        const currentPlayer = data.players[data.current_player_index] || null;
+        if (!currentPlayer) {
+          gameInfo.textContent = 'No active players';
+          turnInfo.textContent = 'Add players to begin.';
+          diceView.innerHTML = '';
+          return;
+        }
+        const currentTurn = data.current_turn;
+        gameInfo.textContent = `Game ${data.id} • Round ${data.current_round} • Status ${data.status}`;
+        turnInfo.textContent = currentTurn
+          ? `Current turn: ${currentPlayer.name} • Rolls used: ${currentTurn.roll_count}`
+          : `Waiting for ${currentPlayer.name} to start a turn.`;
+        if (currentTurn && currentTurn.dice_values && currentTurn.dice_values.length) {
+          diceView.innerHTML = currentTurn.dice_values.map((value) => `<div class="die">${value}</div>`).join('');
+        } else {
+          diceView.innerHTML = '<div class="muted">No dice rolled yet.</div>';
+        }
+      }
+
+      function renderScoreActions(data) {
+        const container = document.getElementById('score-actions');
+        const currentTurn = data.current_turn;
+        if (!currentTurn) {
+          container.innerHTML = '<div class="muted">Score entries will appear once a turn is active.</div>';
+          return;
+        }
+        const options = categories.map((category) => `
+          <label class="score-row">
+            <span>${category.replace(/_/g, ' ')}</span>
+            <input type="radio" name="category" value="${category}" ${category === 'ones' ? 'checked' : ''} />
+          </label>
+        `).join('');
+        container.innerHTML = options;
+      }
+
+      function renderScoreCards(data) {
+        const panel = document.getElementById('score-card-panel');
+        if (!data.score_cards || !data.score_cards.length) {
+          panel.innerHTML = '<div class="muted">Score cards will appear once players are added.</div>';
+          return;
+        }
+
+        const cards = data.score_cards.map((card) => {
+          const player = data.players.find((entry) => entry.id === card.player_id);
+          const playerName = player ? player.name : `Player ${card.player_id}`;
+          return `
+            <div>
+              <div class="player-row">
+                <strong>${playerName}</strong>
+                <span class="score-pill">Total ${card.grand_total}</span>
+              </div>
+              <div class="muted section-title">Upper: ${card.upper_section_total} • Lower: ${card.lower_section_total}</div>
+              <div class="muted">Used categories: ${card.used_categories.length ? card.used_categories.join(', ') : 'None yet'}</div>
+            </div>
+          `;
+        }).join('');
+
+        panel.innerHTML = `<h4>Score cards</h4>${cards}`;
+      }
+    </script>
+  </body>
+</html>
