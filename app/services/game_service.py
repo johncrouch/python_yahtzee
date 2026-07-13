@@ -3,22 +3,27 @@ from __future__ import annotations
 from random import randint
 
 from app.domain.game import Game, GameStatus, Player, Turn
+from app.repositories.game_repository import GameRepository
+from app.repositories.in_memory_game_repository import InMemoryGameRepository
 from app.services.scoring_service import ScoringService
 
 
 class GameService:
     """Service for managing the lifecycle of a Yahtzee game."""
 
-    def __init__(self) -> None:
+    def __init__(self, repository: GameRepository | None = None) -> None:
+        self._repository = repository or InMemoryGameRepository()
         self._games: dict[int, Game] = {}
         self._next_id = 1
         self._next_turn_id = 1
         self._scoring_service = ScoringService()
+        self._load_existing_games()
 
     def create_game(self) -> Game:
         game = Game(id=self._next_id)
         self._games[game.id] = game
         self._next_id += 1
+        self._repository.save(game)
         return game
 
     def add_player(self, game_id: int, name: str, seat_number: int) -> Player:
@@ -28,20 +33,23 @@ class GameService:
         player = Player(id=self._next_id, name=name, seat_number=seat_number)
         game.add_player(player)
         self._next_id += 1
+        self._repository.save(game)
         return player
 
     def start_game(self, game_id: int) -> Game:
         game = self._get_game_or_raise(game_id)
         game.start()
         self._start_turn(game)
+        self._repository.save(game)
         return game
 
     def abort_game(self, game_id: int) -> Game:
         game = self._get_game_or_raise(game_id)
         game.status = GameStatus.ABORTED
+        self._repository.save(game)
         return game
 
-    def roll_dice(self, game_id: int, dice_values: list[int] | None = None) -> list[int]:
+    def roll_dice(self, game_id: int, dice_values: list[int] | None = None, keep_indices: list[int] | None = None) -> list[int]:
         game = self._get_game_or_raise(game_id)
         if game.status != GameStatus.ACTIVE:
             raise ValueError("The game must be active before rolling")
@@ -52,11 +60,24 @@ class GameService:
         if game.current_turn.roll_count >= 3:
             raise ValueError("A turn can only have up to 3 rolls")
 
+        if dice_values is not None and len(dice_values) != 5:
+            raise ValueError("Exactly 5 dice values are required")
+
         if dice_values is None:
-            dice_values = [randint(1, 6) for _ in range(5)]
+            previous_values = list(game.current_turn.dice_values or [0, 0, 0, 0, 0])
+            if keep_indices:
+                normalized_keep_indices = [index for index in keep_indices if 0 <= index < len(previous_values)]
+                if len(normalized_keep_indices) != len(keep_indices):
+                    raise ValueError("Keep indices must refer to existing dice positions")
+                dice_values = [randint(1, 6) for _ in range(5)]
+                for index in normalized_keep_indices:
+                    dice_values[index] = previous_values[index]
+            else:
+                dice_values = [randint(1, 6) for _ in range(5)]
 
         game.current_turn.dice_values = list(dice_values)
         game.current_turn.roll_count += 1
+        self._repository.save(game)
         return game.current_turn.dice_values
 
     def submit_score(self, game_id: int, category: str, dice_values: list[int] | None = None) -> int:
@@ -84,6 +105,7 @@ class GameService:
         else:
             self._start_turn(game)
 
+        self._repository.save(game)
         return score
 
     def get_game(self, game_id: int) -> Game:
@@ -102,6 +124,13 @@ class GameService:
         )
         self._next_turn_id += 1
 
+    def _load_existing_games(self) -> None:
+        for game_id in self._repository.list_game_ids():
+            loaded = self._repository.load(game_id)
+            if loaded is not None:
+                self._games[loaded.id] = loaded
+                self._next_id = max(self._next_id, loaded.id + 1)
+
     def _is_game_complete(self, game: Game) -> bool:
         if not game.players:
             return False
@@ -110,5 +139,9 @@ class GameService:
     def _get_game_or_raise(self, game_id: int) -> Game:
         game = self._games.get(game_id)
         if game is None:
-            raise KeyError(f"Game {game_id} does not exist")
+            loaded = self._repository.load(game_id)
+            if loaded is None:
+                raise KeyError(f"Game {game_id} does not exist")
+            self._games[loaded.id] = loaded
+            game = loaded
         return game

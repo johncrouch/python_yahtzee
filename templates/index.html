@@ -18,14 +18,17 @@
       button.secondary { background: #475569; }
       .status { display: inline-block; padding: 0.4rem 0.7rem; border-radius: 999px; background: #dbeafe; color: #1d4ed8; font-weight: 600; margin-top: 0.7rem; }
       .dice { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 0.8rem 0 1rem; }
-      .die { width: 48px; height: 48px; display: grid; place-items: center; font-weight: 700; font-size: 1.25rem; border-radius: 12px; background: #fef3c7; color: #92400e; box-shadow: inset 0 0 0 1px #fde68a; }
+      .die { width: 48px; height: 48px; display: grid; place-items: center; font-weight: 700; font-size: 1.25rem; border-radius: 12px; background: #fef3c7; color: #92400e; box-shadow: inset 0 0 0 1px #fde68a; border: none; cursor: pointer; }
+      .die.kept { background: #dcfce7; color: #166534; box-shadow: inset 0 0 0 1px #86efac; }
+      .die-hint { margin-top: 0.4rem; font-size: 0.9rem; color: #64748b; }
       .players, .scorecard { display: grid; gap: 0.5rem; }
-      .player-row, .score-row { display: flex; justify-content: space-between; align-items: center; padding: 0.65rem 0.8rem; border-radius: 10px; background: #f8fafc; }
-      .score-row.active { outline: 2px solid #93c5fd; background: #eff6ff; }
-      .score-grid { display: grid; gap: 0.4rem; margin-top: 0.8rem; }
-      .score-card-panel { margin-top: 1rem; padding: 0.8rem; border-radius: 12px; background: #f8fafc; }
-      .score-card-panel h4 { margin: 0 0 0.5rem; }
+      .player-row { display: flex; justify-content: space-between; align-items: center; padding: 0.65rem 0.8rem; border-radius: 10px; background: #f8fafc; }
+      .current-player-card, .score-card-panel { margin-top: 1rem; padding: 0.8rem; border-radius: 12px; background: #f8fafc; }
+      .current-player-card h4, .score-card-panel h4 { margin: 0 0 0.5rem; }
       .score-card-panel .section-title { font-weight: 700; margin-top: 0.6rem; color: #334155; }
+      .score-card-list { display: grid; gap: 0.4rem; }
+      .score-card-item { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.65rem; border-radius: 8px; background: white; border: 1px solid #e2e8f0; }
+      .score-card-item.used { opacity: 0.7; background: #f1f5f9; }
       .score-pill { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 999px; background: #dbeafe; color: #1d4ed8; font-size: 0.8rem; font-weight: 700; }
       .muted { color: #64748b; font-size: 0.95rem; }
       pre { background: #0f172a; color: #f8fafc; padding: 1rem; border-radius: 12px; overflow-x: auto; }
@@ -45,12 +48,11 @@
             <button onclick="createGame()">Create Game</button>
             <button class="secondary" onclick="startGame()">Start Game</button>
             <button class="secondary" onclick="rollDice()">Roll Dice</button>
-            <button class="secondary" onclick="submitScore()">Submit Score</button>
           </div>
 
           <div class="muted" id="turn-info">Create or start a game to begin playing.</div>
           <div class="dice" id="dice-view"></div>
-          <div class="score-grid" id="score-actions"></div>
+          <div id="current-player-score-card" class="current-player-card"></div>
         </div>
 
         <div class="card">
@@ -63,7 +65,7 @@
           <div class="toolbar">
             <input id="player-name" placeholder="Player name" />
             <input id="seat-number" placeholder="Seat" type="number" min="1" max="4" />
-            <button onclick="addPlayer()">Add Player</button>
+            <button id="add-player-button" onclick="addPlayer()">Add Player</button>
           </div>
 
           <h3 style="margin-bottom: 0.3rem; margin-top: 1rem;">Current state</h3>
@@ -74,6 +76,7 @@
 
     <script>
       let currentGameId = null;
+      let keptDiceIndices = [];
       const categories = ["ones", "twos", "threes", "fours", "fives", "sixes", "three_of_a_kind", "four_of_a_kind", "full_house", "small_straight", "large_straight", "yahtzee", "chance"];
 
       async function api(path, options = {}) {
@@ -138,7 +141,12 @@
           return;
         }
         try {
-          const data = await api(`/games/${currentGameId}/roll`, { method: 'POST' });
+          const payload = keptDiceIndices.length ? { keep_indices: keptDiceIndices } : null;
+          const data = await api(`/games/${currentGameId}/roll`, {
+            method: 'POST',
+            body: payload ? JSON.stringify(payload) : undefined,
+          });
+          keptDiceIndices = [];
           await refreshState();
           const diceText = data.dice_values.join(' • ');
           document.getElementById('turn-info').textContent = `Last roll: ${diceText}`;
@@ -147,19 +155,33 @@
         }
       }
 
-      async function submitScore() {
+      async function submitScore(category) {
         if (!currentGameId) {
           alert('Create a game first.');
           return;
         }
-        const category = document.querySelector('input[name="category"]:checked')?.value || 'ones';
+        if (!category) {
+          alert('Select a category to use.');
+          return;
+        }
+        const diceValues = window.__currentTurnData?.dice_values || [];
+        if (!diceValues.length) {
+          alert('Roll the dice before using a category.');
+          return;
+        }
         try {
-          const data = await api(`/games/${currentGameId}/score?category=${category}&dice_values=1&dice_values=1&dice_values=1&dice_values=2&dice_values=3`, { method: 'POST' });
+          const params = new URLSearchParams({ category });
+          diceValues.forEach((value) => params.append('dice_values', String(value)));
+          const data = await api(`/games/${currentGameId}/score?${params.toString()}`, { method: 'POST' });
           await refreshState();
           alert(`Score submitted: ${data.score}`);
         } catch (error) {
           alert(error.message);
         }
+      }
+
+      function useCategory(category) {
+        submitScore(category);
       }
 
       async function refreshState() {
@@ -169,7 +191,7 @@
           document.getElementById('state-output').textContent = JSON.stringify(data, null, 2);
           renderPlayers(data.players);
           renderTurnInfo(data);
-          renderScoreActions(data);
+          renderCurrentPlayerCard(data);
           renderScoreCards(data);
         } catch (error) {
           document.getElementById('state-output').textContent = error.message;
@@ -178,55 +200,112 @@
 
       function renderPlayers(players) {
         const container = document.getElementById('players-view');
+        const addPlayerButton = document.getElementById('add-player-button');
+        const playerNameInput = document.getElementById('player-name');
+        const seatNumberInput = document.getElementById('seat-number');
+
         if (!players || !players.length) {
           container.innerHTML = '<div class="muted">No players yet.</div>';
+        } else {
+          container.innerHTML = players.map((player) => `
+            <div class="player-row">
+              <span>${player.name}</span>
+              <span class="muted">Seat ${player.seat_number}</span>
+            </div>
+          `).join('');
+        }
+
+        const isFull = Array.isArray(players) && players.length >= 4;
+        addPlayerButton.disabled = isFull;
+        addPlayerButton.textContent = isFull ? 'Players Full' : 'Add Player';
+        addPlayerButton.style.opacity = isFull ? '0.7' : '1';
+        addPlayerButton.style.cursor = isFull ? 'not-allowed' : 'pointer';
+        playerNameInput.disabled = isFull;
+        seatNumberInput.disabled = isFull;
+      }
+
+      function toggleKeepDie(index) {
+        const existingIndex = keptDiceIndices.indexOf(index);
+        if (existingIndex >= 0) {
+          keptDiceIndices.splice(existingIndex, 1);
+        } else {
+          keptDiceIndices.push(index);
+        }
+        const currentTurn = window.__currentTurnData;
+        if (currentTurn && currentTurn.dice_values) {
+          renderDiceView(currentTurn.dice_values);
+        }
+      }
+
+      function renderDiceView(diceValues) {
+        const diceView = document.getElementById('dice-view');
+        if (!diceValues || !diceValues.length) {
+          diceView.innerHTML = '<div class="muted">No dice rolled yet.</div>';
           return;
         }
-        container.innerHTML = players.map((player) => `
-          <div class="player-row">
-            <span>${player.name}</span>
-            <span class="muted">Seat ${player.seat_number}</span>
-          </div>
-        `).join('');
+        diceView.innerHTML = `
+          ${diceValues.map((value, index) => `
+            <button type="button" class="die ${keptDiceIndices.includes(index) ? 'kept' : ''}" onclick="toggleKeepDie(${index})">${value}</button>
+          `).join('')}
+          <div class="die-hint">Click a die to keep it for the next roll.</div>
+        `;
       }
 
       function renderTurnInfo(data) {
         const turnInfo = document.getElementById('turn-info');
         const gameInfo = document.getElementById('game-info');
-        const diceView = document.getElementById('dice-view');
         const currentPlayer = data.players[data.current_player_index] || null;
         if (!currentPlayer) {
           gameInfo.textContent = 'No active players';
           turnInfo.textContent = 'Add players to begin.';
-          diceView.innerHTML = '';
+          document.getElementById('dice-view').innerHTML = '';
           return;
         }
         const currentTurn = data.current_turn;
+        window.__currentTurnData = currentTurn;
         gameInfo.textContent = `Game ${data.id} • Round ${data.current_round} • Status ${data.status}`;
         turnInfo.textContent = currentTurn
           ? `Current turn: ${currentPlayer.name} • Rolls used: ${currentTurn.roll_count}`
           : `Waiting for ${currentPlayer.name} to start a turn.`;
         if (currentTurn && currentTurn.dice_values && currentTurn.dice_values.length) {
-          diceView.innerHTML = currentTurn.dice_values.map((value) => `<div class="die">${value}</div>`).join('');
+          renderDiceView(currentTurn.dice_values);
         } else {
-          diceView.innerHTML = '<div class="muted">No dice rolled yet.</div>';
+          document.getElementById('dice-view').innerHTML = '<div class="muted">No dice rolled yet.</div>';
         }
       }
 
-      function renderScoreActions(data) {
-        const container = document.getElementById('score-actions');
-        const currentTurn = data.current_turn;
-        if (!currentTurn) {
-          container.innerHTML = '<div class="muted">Score entries will appear once a turn is active.</div>';
+      function renderCurrentPlayerCard(data) {
+        const container = document.getElementById('current-player-score-card');
+        const currentPlayer = data.players[data.current_player_index] || null;
+        if (!currentPlayer) {
+          container.innerHTML = '<div class="muted">Add players to see the active score card.</div>';
           return;
         }
-        const options = categories.map((category) => `
-          <label class="score-row">
-            <span>${category.replace(/_/g, ' ')}</span>
-            <input type="radio" name="category" value="${category}" ${category === 'ones' ? 'checked' : ''} />
-          </label>
-        `).join('');
-        container.innerHTML = options;
+
+        const scoreCard = (data.score_cards || []).find((card) => card.player_id === currentPlayer.id);
+        if (!scoreCard) {
+          container.innerHTML = '<div class="muted">No score card is available for the current player yet.</div>';
+          return;
+        }
+
+        const usedCategories = new Set(scoreCard.used_categories || []);
+        const rows = categories.map((category) => {
+          const used = usedCategories.has(category);
+          return `
+            <div class="score-card-item ${used ? 'used' : ''}">
+              <span>${category.replace(/_/g, ' ')}</span>
+              <div>
+                <button type="button" ${used ? 'disabled' : ''} onclick="useCategory('${category}')">${used ? 'Used' : 'Open'}</button>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        container.innerHTML = `
+          <h4>${currentPlayer.name}'s score card</h4>
+          <div class="muted" style="margin-bottom: 0.5rem;">Upper ${scoreCard.upper_section_total} • Lower ${scoreCard.lower_section_total} • Grand ${scoreCard.grand_total}</div>
+          <div class="score-card-list">${rows}</div>
+        `;
       }
 
       function renderScoreCards(data) {

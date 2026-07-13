@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 from app.api.schemas import (
     GameCreateResponse,
@@ -14,6 +15,10 @@ from app.services.game_service import GameService
 
 router = APIRouter()
 service = GameService()
+
+
+class RollDiceRequest(BaseModel):
+    keep_indices: list[int] | None = None
 
 
 @router.post("/games", response_model=GameCreateResponse)
@@ -87,9 +92,12 @@ def start_game(game_id: int) -> dict[str, str]:
 
 
 @router.post("/games/{game_id}/roll")
-def roll_dice(game_id: int) -> dict[str, object]:
+def roll_dice(game_id: int, payload: RollDiceRequest | None = None) -> dict[str, object]:
     try:
-        dice_values = service.roll_dice(game_id)
+        dice_values = service.roll_dice(
+            game_id,
+            keep_indices=payload.keep_indices if payload is not None else None,
+        )
     except (KeyError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -97,7 +105,13 @@ def roll_dice(game_id: int) -> dict[str, object]:
 
 
 @router.post("/games/{game_id}/score")
-def submit_score(game_id: int, category: str, dice_values: list[int]) -> dict[str, object]:
+def submit_score(
+    game_id: int,
+    category: str,
+    dice_values: list[int] = Query(default=[]),
+) -> dict[str, object]:
+    if not dice_values:
+        dice_values = [0, 0, 0, 0, 0]
     try:
         score = service.submit_score(game_id, category, dice_values)
     except (KeyError, ValueError) as exc:
